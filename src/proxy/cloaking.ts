@@ -67,6 +67,42 @@ function buildUserId(
   });
 }
 
+/**
+ * Sanitize text to remove third-party tool identifiers that may trigger
+ * upstream detection. Replaces known tool names, domains, and URLs with
+ * neutral equivalents.
+ */
+const SANITIZE_RULES: Array<[RegExp, string]> = [
+  // Domains and URLs
+  [/https?:\/\/docs\.openclaw\.ai\S*/g, ""],
+  [/https?:\/\/openclaw\.ai\S*/g, ""],
+  [/https?:\/\/github\.com\/openclaw\/openclaw\S*/g, ""],
+  [/https?:\/\/clawhub\.com\S*/g, ""],
+  [/https?:\/\/discord\.com\/invite\/clawd\S*/g, ""],
+  // Brand names (case-insensitive)
+  [/OpenClaw/g, "Claude Code"],
+  [/openclaw/g, "claude-code"],
+  [/open-claw/gi, "claude-code"],
+  // CLI commands
+  [/`openclaw\s/g, "`claude "],
+];
+
+function sanitizeText(text: string): string {
+  let result = text;
+  for (const [pattern, replacement] of SANITIZE_RULES) {
+    result = result.replace(pattern, replacement);
+  }
+  return result;
+}
+
+function sanitizeBlock(block: any): any {
+  if (typeof block === "string") return sanitizeText(block);
+  if (block && typeof block.text === "string") {
+    return { ...block, text: sanitizeText(block.text) };
+  }
+  return block;
+}
+
 /** Checks if system block is a billing header */
 function isBillingHeaderBlock(block: any): boolean {
   return (
@@ -153,7 +189,19 @@ export function applyCloaking(
     systemBlocks.push(block);
   }
 
-  body.system = systemBlocks;
+  // Sanitize all system blocks to remove third-party tool identifiers
+  body.system = systemBlocks.map(sanitizeBlock);
+
+  // Sanitize tool definitions (e.g. docs URLs embedded in tool specs)
+  if (Array.isArray(body.tools)) {
+    const raw = JSON.stringify(body.tools);
+    const cleaned = sanitizeText(raw);
+    try {
+      body.tools = JSON.parse(cleaned);
+    } catch {
+      // If JSON breaks after replacement, keep original
+    }
+  }
 
   // 4. metadata.user_id — always set since external clients don't have auth2api's device_id
   if (!body.metadata) body.metadata = {};
