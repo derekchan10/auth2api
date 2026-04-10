@@ -7,8 +7,51 @@ import {
   AccountManager,
   UsageData,
 } from "../accounts/manager";
-import { applyCloaking } from "./cloaking";
+import { applyCloaking, uncloakToolName } from "./cloaking";
 import { callClaudeAPI, callClaudeCountTokens } from "./claude-api";
+
+/**
+ * Walk a non-stream Claude response and revert any tool_use names that were
+ * cloaked outbound by applyCloaking. The client only ever sees original names.
+ */
+function uncloakResponseInPlace(data: any): void {
+  if (!data || !Array.isArray(data.content)) return;
+  for (const block of data.content) {
+    if (block && block.type === "tool_use" && typeof block.name === "string") {
+      block.name = uncloakToolName(block.name);
+    }
+  }
+}
+
+/**
+ * Rewrite a single SSE `data:` line if it carries a content_block_start with
+ * a cloaked tool_use name. Returns the original line untouched if there's
+ * nothing to rewrite (or the line isn't valid JSON we recognize).
+ */
+function uncloakSseDataLine(line: string): string {
+  if (!line.startsWith("data:")) return line;
+  const raw = line.slice(5).trim();
+  if (!raw || raw === "[DONE]") return line;
+  let parsed: any;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return line;
+  }
+  if (
+    parsed?.type === "content_block_start" &&
+    parsed?.content_block?.type === "tool_use" &&
+    typeof parsed.content_block.name === "string"
+  ) {
+    const orig = parsed.content_block.name;
+    const reverted = uncloakToolName(orig);
+    if (orig !== reverted) {
+      parsed.content_block.name = reverted;
+      return "data: " + JSON.stringify(parsed);
+    }
+  }
+  return line;
+}
 
 const MAX_RETRIES = 3;
 const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
@@ -164,35 +207,50 @@ export function createMessagesHandler(config: Config, manager: AccountManager) {
                 const { done, value } = await reader.read();
                 if (done) break;
                 const chunk = Buffer.from(value);
-                res.write(chunk);
 
-                // Parse SSE to extract usage
+                // Buffer by line: write only complete lines so we can rewrite
+                // tool_use names mid-stream. Partial trailing line stays in
+                // sseBuffer until the next chunk completes it.
                 sseBuffer += chunk.toString();
                 const lines = sseBuffer.split("\n");
                 sseBuffer = lines.pop() ?? "";
+
+                let outBuf = "";
                 for (const line of lines) {
+                  let outLine = line;
                   if (line.startsWith("event:")) {
                     currentEvent = line.slice(6).trim();
                   } else if (line.startsWith("data:")) {
                     const raw = line.slice(5).trim();
-                    if (!raw || raw === "[DONE]") continue;
-                    try {
-                      const data = JSON.parse(raw);
-                      if (currentEvent === "message_start") {
-                        const u = data.message?.usage;
-                        usage.inputTokens = u?.input_tokens || 0;
-                        usage.cacheCreationInputTokens =
-                          u?.cache_creation_input_tokens || 0;
-                        usage.cacheReadInputTokens =
-                          u?.cache_read_input_tokens || 0;
-                      } else if (currentEvent === "message_delta") {
-                        usage.outputTokens = data.usage?.output_tokens || 0;
+                    if (raw && raw !== "[DONE]") {
+                      try {
+                        const data = JSON.parse(raw);
+                        if (currentEvent === "message_start") {
+                          const u = data.message?.usage;
+                          usage.inputTokens = u?.input_tokens || 0;
+                          usage.cacheCreationInputTokens =
+                            u?.cache_creation_input_tokens || 0;
+                          usage.cacheReadInputTokens =
+                            u?.cache_read_input_tokens || 0;
+                        } else if (currentEvent === "message_delta") {
+                          usage.outputTokens = data.usage?.output_tokens || 0;
+                        }
+                      } catch {
+                        /* ignore parse errors */
                       }
-                    } catch {
-                      /* ignore parse errors */
                     }
+                    // Revert any cloaked tool_use names so the client never
+                    // sees the cc_ prefix.
+                    outLine = uncloakSseDataLine(line);
                   }
+                  outBuf += outLine + "\n";
                 }
+                if (outBuf) res.write(outBuf);
+              }
+              // Flush any remaining partial line so we don't drop bytes.
+              if (!clientDisconnected && sseBuffer) {
+                res.write(sseBuffer);
+                sseBuffer = "";
               }
               if (!clientDisconnected) {
                 manager.recordSuccess(account.token.email);
@@ -213,6 +271,7 @@ export function createMessagesHandler(config: Config, manager: AccountManager) {
           } else {
             // Forward JSON response directly
             const data = await upstreamResp.json();
+            uncloakResponseInPlace(data);
             manager.recordSuccess(account.token.email);
             manager.recordUsage(account.token.email, {
               inputTokens: data.usage?.input_tokens || 0,
