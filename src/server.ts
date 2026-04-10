@@ -9,6 +9,8 @@ import {
   createCountTokensHandler,
 } from "./proxy/passthrough";
 import { createResponsesHandler } from "./proxy/responses";
+import { createDiagnoseHandler } from "./proxy/diagnose";
+import { resetSessionId } from "./proxy/claude-api";
 
 const SUPPORTED_MODELS = [
   "claude-opus-4-6",
@@ -167,6 +169,19 @@ export function createServer(
       account_count: manager.accountCount,
       generated_at: new Date().toISOString(),
     });
+  });
+
+  // Diagnostic endpoint: baseline probe or ddmin trigger isolation.
+  // POST /admin/diagnose { mode: "baseline"|"detect", body?, cloak?, maxCalls? }
+  app.post("/admin/diagnose", createDiagnoseHandler(config, manager));
+
+  // Rotate the sessionMap entry for the caller's API key. Used when a
+  // long-running session starts behaving like a "stale CLI" to upstream.
+  app.post("/admin/reset-session", (req, res) => {
+    const key = extractApiKey(req.headers) || "";
+    const hash = crypto.createHash("sha256").update(key).digest("hex");
+    resetSessionId(hash);
+    res.json({ ok: true });
   });
 
   return app;

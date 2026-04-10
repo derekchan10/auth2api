@@ -72,7 +72,26 @@ function buildUserId(
  * upstream detection. Replaces known tool names, domains, and URLs with
  * neutral equivalents.
  */
+/**
+ * Sanitize rules — ordered list, applied top to bottom. Earlier rules run first,
+ * so put *full descriptive phrases* before bare brand replacements (otherwise the
+ * brand replace turns the phrase into something that no longer matches).
+ *
+ * When adding a rule, leave a short note about where it came from — past
+ * incidents show that the upstream detector matches full sentences, not just
+ * brand keywords, so attribution helps future-you judge whether a rule is still
+ * load-bearing.
+ */
 const SANITIZE_RULES: Array<[RegExp, string]> = [
+  // Full descriptive phrases (must come before brand replacements)
+  // Confirmed trigger phrase, 2026-04-05 — detect-fp binary search isolated
+  // this exact sentence as the *only* trigger; bare "openclaw" on its own
+  // did not fire.
+  [
+    /You are a personal assistant running inside OpenClaw\.?/gi,
+    "You are a helpful assistant.",
+  ],
+
   // Domains and URLs
   [/https?:\/\/docs\.openclaw\.ai\S*/g, ""],
   [/https?:\/\/openclaw\.ai\S*/g, ""],
@@ -87,7 +106,7 @@ const SANITIZE_RULES: Array<[RegExp, string]> = [
   [/`openclaw\s/g, "`claude "],
 ];
 
-function sanitizeText(text: string): string {
+export function sanitizeText(text: string): string {
   let result = text;
   for (const [pattern, replacement] of SANITIZE_RULES) {
     result = result.replace(pattern, replacement);
