@@ -82,8 +82,11 @@ const BANNED_TOOL_NAMES = new Set<string>([
   "sessions_history",
   "sessions_send",
   "sessions_spawn",
+  "sessions_yield",
   "session_status",
   "subagents",
+  "message",
+  "tts",
   "memory_search",
   "memory_get",
 ]);

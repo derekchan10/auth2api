@@ -1,14 +1,12 @@
 services:
   auth2api:
     build: .
+    container_name: auth2api
     ports:
       - "8317:8317"
     volumes:
       - ./config.yaml:/config/config.yaml
-      - auth-data:/data
+      - /home/dc/.auth2api:/data
     environment:
       - NODE_ENV=production
     restart: unless-stopped
-
-volumes:
-  auth-data:

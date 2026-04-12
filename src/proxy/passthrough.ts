@@ -94,23 +94,12 @@ export function createMessagesHandler(config: Config, manager: AccountManager) {
         .update(apiKey)
         .digest("hex");
 
-      // When request comes from claude-cli, pass through anthropic-* and session headers
-      const userAgent = req.headers["user-agent"] || "";
-      let passthroughHeaders: Record<string, string> | undefined;
-      let overrideSessionId: string | undefined;
-      if (userAgent.startsWith("claude-cli")) {
-        passthroughHeaders = { "User-Agent": userAgent };
-        for (const [key, value] of Object.entries(req.headers)) {
-          if (key.startsWith("anthropic") && typeof value === "string") {
-            passthroughHeaders[key] = value;
-          }
-        }
-        const sessionId = req.headers["x-claude-code-session-id"];
-        if (typeof sessionId === "string") {
-          passthroughHeaders["X-Claude-Code-Session-Id"] = sessionId;
-          overrideSessionId = sessionId;
-        }
-      }
+      // Always apply auth2api's own cloaking — never pass through upstream
+      // client headers (even from claude-cli). This ensures consistent billing
+      // headers and avoids conflicts when OpenClaw (which sends user-agent:
+      // claude-cli/xxx) connects through auth2api.
+      const passthroughHeaders: Record<string, string> | undefined = undefined;
+      const overrideSessionId: string | undefined = undefined;
 
       let lastStatus = 500;
       let lastErrBody = "";
