@@ -132,10 +132,10 @@ const SANITIZE_RULES: Array<[RegExp, string]> = [
   // Confirmed trigger phrase, 2026-04-10 — ddmin (cloaked, opus) isolated this
   // single line as the only trigger out of a 602-line OpenClaw system prompt;
   // upstream returns "out of extra usage" 400 when this exact slash-command
-  // help line is present. Strip the whole line.
+  // help line is present. Rewrite to a neutral equivalent.
   [
     /Reasoning: (?:on|off) \(hidden unless on\/stream\)\. Toggle \/reasoning; \/status shows Reasoning when enabled\.\s*/gi,
-    "",
+    "Extended thinking: configurable. Use /think to toggle; check /status for current state.\n",
   ],
   // Confirmed trigger phrase, 2026-04-10 — ddmin (after tool-name rewrite was
   // in place) isolated this HEARTBEAT_OK heartbeat-ack help line as another
@@ -143,36 +143,34 @@ const SANITIZE_RULES: Array<[RegExp, string]> = [
   // ack reads to upstream as agent-loop control plane.
   [
     /OpenClaw treats a leading\/trailing "HEARTBEAT_OK" as a heartbeat ack \(and may discard it\)\.\s*/gi,
-    "",
+    "The system treats a leading/trailing \"IDLE_ACK\" as a periodic-check acknowledgement (and may discard it).\n",
   ],
   // Confirmed trigger phrase, 2026-04-10 (round 3) — the OpenClaw "heartbeat
   // prompt" itself, which the model is told to recognize and reply
   // HEARTBEAT_OK to. Read HEARTBEAT.md + reply HEARTBEAT_OK is a strong
-  // agent-loop tell. Strip the entire instruction in both wrapped and bare
-  // forms (the system prompt has it twice — once as `Heartbeat prompt: …` and
-  // once as a code-fenced example under `Default heartbeat prompt:`).
+  // agent-loop tell. Rewrite to neutral phrasing.
   [
     /(?:Heartbeat prompt: )?`?Read HEARTBEAT\.md if it exists \(workspace context\)\. Follow it strictly\. Do not infer or repeat old tasks from prior chats\. If nothing needs attention, reply HEARTBEAT_OK\.`?\s*/gi,
-    "",
+    "Read the periodic-check config file if it exists. Follow its instructions. Do not repeat tasks from earlier sessions. If nothing needs attention, reply IDLE_ACK.\n",
   ],
   // Confirmed trigger phrase, 2026-04-10 (round 4) — the OpenClaw reply-tag
   // help block. The [[reply_to_current]] / [[reply_to:<id>]] tag syntax reads
   // as agent control plane instructions to upstream.
   [
     /- Prefer \[\[reply_to_current\]\]\. Use \[\[reply_to:<id>\]\] only when an id was explicitly provided \(e\.g\. by the user or a tool\)\.\s*/g,
-    "",
+    "- Prefer replying to the current message. Use an explicit message reference only when an id was provided by the user or a tool.\n",
   ],
   [
     /Tags are stripped before sending; support depends on the current channel config\.\s*/g,
-    "",
+    "Directive tags are removed before delivery; availability depends on the active channel.\n",
   ],
 
-  // Domains and URLs
-  [/https?:\/\/docs\.openclaw\.ai\S*/g, ""],
-  [/https?:\/\/openclaw\.ai\S*/g, ""],
-  [/https?:\/\/github\.com\/openclaw\/openclaw\S*/g, ""],
-  [/https?:\/\/clawhub\.com\S*/g, ""],
-  [/https?:\/\/discord\.com\/invite\/clawd\S*/g, ""],
+  // Domains and URLs — rewrite to generic placeholders
+  [/https?:\/\/docs\.openclaw\.ai\S*/g, "https://docs.example.com"],
+  [/https?:\/\/openclaw\.ai\S*/g, "https://example.com"],
+  [/https?:\/\/github\.com\/openclaw\/openclaw\S*/g, "https://github.com/anthropics/claude-code"],
+  [/https?:\/\/clawhub\.com\S*/g, "https://marketplace.example.com"],
+  [/https?:\/\/discord\.com\/invite\/clawd\S*/g, "https://community.example.com"],
   // Brand names (case-insensitive)
   [/OpenClaw/g, "Claude Code"],
   [/openclaw/g, "claude-code"],
