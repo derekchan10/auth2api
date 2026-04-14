@@ -1,7 +1,17 @@
 import crypto from "crypto";
+import { ProxyAgent, setGlobalDispatcher } from "undici";
 import { CloakingConfig, TimeoutConfig } from "../config";
 
 const BASE_URL = "https://api.anthropic.com";
+
+// Node 20's built-in fetch (undici) ignores HTTP(S)_PROXY env vars by default.
+// Wire them up manually so HTTPS_PROXY routes upstream Anthropic calls through
+// the configured proxy (e.g. clash) when set.
+const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
+if (proxyUrl) {
+  setGlobalDispatcher(new ProxyAgent(proxyUrl));
+  console.log(`[proxy] routing upstream via ${proxyUrl}`);
+}
 
 /**
  * Dynamic Anthropic-Beta construction — mirrors Claude Code's utils/betas.ts
